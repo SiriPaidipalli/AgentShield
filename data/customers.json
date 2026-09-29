@@ -1,0 +1,4 @@
+[
+  {"id": "customer-001", "name": "Demo Customer One", "email": "customer.one@example.invalid", "company": "Synthetic Orchard Labs", "plan": "standard"},
+  {"id": "customer-002", "name": "Demo Customer Two", "email": "customer.two@example.invalid", "company": "Synthetic Lantern Works", "plan": "enterprise"}
+]

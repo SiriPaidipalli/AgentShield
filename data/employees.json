@@ -1,0 +1,5 @@
+[
+  {"id": "employee-001", "name": "Demo Employee One", "email": "employee.one@example.invalid", "department": "Operations", "job_title": "Operations Associate"},
+  {"id": "employee-002", "name": "Demo Employee Two", "email": "employee.two@example.invalid", "department": "Support", "job_title": "Support Specialist"},
+  {"id": "employee-003", "name": "Demo Employee Three", "email": "employee.three@example.invalid", "department": "IT", "job_title": "System Administrator"}
+]

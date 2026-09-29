@@ -1,0 +1,8 @@
+[
+  {"id": "document-001", "title": "Employee Handbook", "content": "Synthetic company handbook: employees can request equipment and view office hours in the internal portal.", "access_level": "employee-accessible"},
+  {"id": "document-002", "title": "Equipment Request Guide", "content": "For this demo, open a ticket describing the equipment needed and your department.", "access_level": "employee-accessible"},
+  {"id": "document-003", "title": "Support Triage Guide", "content": "Synthetic support workflow: record the customer ID, summarize the issue, and assign a ticket category.", "access_level": "support-only"},
+  {"id": "document-004", "title": "Customer Plan Reference", "content": "Demo standard customers use the shared support queue. Demo enterprise customers use the priority queue.", "access_level": "support-only"},
+  {"id": "document-005", "title": "Admin Maintenance Notes", "content": "The synthetic enterprise schedules maintenance on the first Friday of each month.", "access_level": "admin-only"},
+  {"id": "document-006", "title": "Admin Asset Inventory", "content": "Demo inventory contains three fictional workstations and one simulated local server.", "access_level": "admin-only"}
+]
