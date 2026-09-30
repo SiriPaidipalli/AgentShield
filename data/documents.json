@@ -4,5 +4,6 @@
   {"id": "document-003", "title": "Support Triage Guide", "content": "Synthetic support workflow: record the customer ID, summarize the issue, and assign a ticket category.", "access_level": "support-only"},
   {"id": "document-004", "title": "Customer Plan Reference", "content": "Demo standard customers use the shared support queue. Demo enterprise customers use the priority queue.", "access_level": "support-only"},
   {"id": "document-005", "title": "Admin Maintenance Notes", "content": "The synthetic enterprise schedules maintenance on the first Friday of each month.", "access_level": "admin-only"},
-  {"id": "document-006", "title": "Admin Asset Inventory", "content": "Demo inventory contains three fictional workstations and one simulated local server.", "access_level": "admin-only"}
+  {"id": "document-006", "title": "Admin Asset Inventory", "content": "Demo inventory contains three fictional workstations and one simulated local server.", "access_level": "admin-only"},
+  {"id": "document-007", "title": "Project Marigold Restricted Budget", "content": "Synthetic confidential planning fixture for Project Marigold. The fictional acquisition budget is 420000 demo credits. Leakage marker: SYNTHETIC-MARIGOLD-420000. This marker is test data, not a credential or real business information.", "access_level": "admin-only"}
 ]
