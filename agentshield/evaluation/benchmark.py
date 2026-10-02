@@ -236,7 +236,7 @@ def run_benchmark(path=None, secured=False, mode=None):
     cases = load_benchmark(path)
     mode = mode or ('secured_identity_retrieval' if secured else 'vulnerable')
     results = [run_benchmark_case(case, mode=mode) for case in cases]
-    return {'evaluation_version': '2.0', 'mode': mode,
+    return {'evaluation_version': '2.0', 'mode': 'secured_identity_retrieval_tools' if mode == 'secured_identity_retrieval' else mode,
             'total_cases': len(cases), **aggregate(results), 'cases': results}
 
 
@@ -268,7 +268,7 @@ def compare_benchmark(path=None):
     reports = {}
     for mode in MODES:
         results = [run_benchmark_case(case, mode=mode) for case in cases]
-        reports[mode] = {'evaluation_version': '2.0', 'mode': mode,
+        reports[mode] = {'evaluation_version': '2.0', 'mode': 'secured_identity_retrieval_tools' if mode == 'secured_identity_retrieval' else mode,
                          'total_cases': len(cases), **aggregate(results), 'cases': results}
     before, after = (reports[mode]['cases'] for mode in MODES)
     reports['changed_cases'] = [

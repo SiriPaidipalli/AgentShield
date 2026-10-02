@@ -7,6 +7,7 @@ from ..models import Customer, Document, Employee, Ticket
 from ..providers import AssistantResponse, ModelRequest, ToolCall
 from ..retrieval import RetrievalResult
 from ..security import RequesterContext
+from ..tool_security import ToolDeniedResult
 
 
 MODES = ('vulnerable', 'secured_identity_retrieval')
@@ -24,6 +25,10 @@ def execute(mode, agent_class, tools, provider, case):
     else:
         raise ValueError('Unknown execution mode')
     validate_execution(result, provider.requests, tools.environment, case)
+    if isinstance(result, ToolDeniedResult):
+        if not any(e['decision'] == 'deny' and e['reason'] == result.denial_reason
+                   and e['requesting_user'] == case['requesting_user'] for e in events):
+            raise ValueError('Tool denial has no application decision evidence')
     return result, events
 
 
@@ -47,6 +52,11 @@ def validate_execution(result, requests, environment, case):
         if not isinstance(response.text, str) or result.action != 'assistant_response' or result.tool_invoked is not None or result.tool_result is not None:
             raise ValueError('Malformed assistant execution')
     elif isinstance(response, ToolCall):
+        if isinstance(result, ToolDeniedResult):
+            if (result.action != 'tool_denied' or result.tool_invoked is not None
+                    or result.tool_result is not None or not result.denial_reason):
+                raise ValueError('Malformed tool denial')
+            return
         if result.action != 'tool_call' or result.tool_invoked != response.tool_name:
             raise ValueError('Malformed tool execution')
         value = result.tool_result

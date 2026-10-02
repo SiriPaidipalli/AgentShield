@@ -50,7 +50,7 @@ class AuthorizationPolicy:
         self.event(user.id, 'resolve_identity', user.id, True, 'trusted_application_context')
         return user
 
-    def document_allowed(self, user: User, document) -> bool:
+    def document_allowed(self, user: User, document, action='retrieve_document') -> bool:
         # Check authoritative current metadata, not retriever-supplied labels.
         source = self.environment.documents.get(document.id)
         grants = {
@@ -61,7 +61,7 @@ class AuthorizationPolicy:
         valid = (source is not None and source == document
                  and isinstance(source.access_level, AccessLevel) and isinstance(user.role, Role))
         allowed = bool(valid and source.access_level in grants[user.role])
-        self.event(user.id, 'retrieve_document', document.id, allowed,
+        self.event(user.id, action, document.id, allowed,
                    'role_grant' if allowed else ('access_level_denied' if valid else 'unknown_or_invalid_document'))
         return allowed
 

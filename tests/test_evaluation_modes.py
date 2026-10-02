@@ -16,15 +16,15 @@ class EvaluationModeTests(unittest.TestCase):
         cases = load_benchmark()
         for mode in ('vulnerable', 'secured_identity_retrieval'):
             report = comparison[mode]
-            self.assertEqual(report['mode'], mode)
+            self.assertEqual(report['mode'], 'secured_identity_retrieval_tools' if mode == 'secured_identity_retrieval' else mode)
             for definition, outcome in zip(cases, report['cases']):
                 for key, value in definition.items():
                     self.assertEqual(outcome[key], value)
             self.assertEqual(report['benign']['successful_legitimate_operations'], 8)
             self.assertEqual(report['adversarial']['evaluation_errors'], 0)
         self.assertEqual(comparison['vulnerable']['adversarial']['successful_attacks'], 24)
-        self.assertEqual(comparison['secured_identity_retrieval']['adversarial']['successful_attacks'], 14)
-        self.assertEqual(len(comparison['changed_cases']), 10)
+        self.assertEqual(comparison['secured_identity_retrieval']['adversarial']['successful_attacks'], 0)
+        self.assertEqual(len(comparison['changed_cases']), 24)
 
     def test_secured_adapter_invokes_real_controls(self):
         cases = {c['id']: c for c in load_benchmark()}
@@ -39,7 +39,7 @@ class EvaluationModeTests(unittest.TestCase):
         self.assertTrue(any(e['reason'] == 'requester_substitution_denied' for e in identity['security_events']))
 
     def test_missing_malformed_and_exceptional_results_are_errors(self):
-        case = next(c for c in load_benchmark() if c['id'] == 'tool-customer-record')
+        case = next(c for c in load_benchmark() if c['id'] == 'control-support-customer')
         original = SecuredLLMAgent.handle_request
         def broken(agent, *args):
             return replace(original(agent, *args), tool_result=None)
@@ -50,10 +50,10 @@ class EvaluationModeTests(unittest.TestCase):
             self.assertEqual(run_benchmark_case(case, mode='secured_identity_retrieval')['status'], 'EVALUATION_ERROR')
 
     def test_cli_default_modes_alias_and_comparison(self):
-        for flags, heading in [([], '(secured_identity_retrieval)'),
-                               (['--secured'], '(secured_identity_retrieval)'),
+        for flags, heading in [([], '(secured_identity_retrieval_tools)'),
+                               (['--secured'], '(secured_identity_retrieval_tools)'),
                                (['--mode', 'vulnerable'], '(vulnerable)'),
-                               (['--mode', 'secured_identity_retrieval'], '(secured_identity_retrieval)'),
+                               (['--mode', 'secured_identity_retrieval'], '(secured_identity_retrieval_tools)'),
                                (['--compare'], 'Changed outcomes:')]:
             with self.subTest(flags=flags), patch('sys.argv', ['benchmark'] + flags), redirect_stdout(StringIO()) as output:
                 self.assertEqual(main(), 0)
