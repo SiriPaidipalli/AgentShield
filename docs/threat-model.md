@@ -1,142 +1,124 @@
 # AgentShield threat model
 
-## Scope and current status
+## Scope and implementations
 
-This document describes the local synthetic AgentShield baseline. All security
-requirements in [security-requirements.md](security-requirements.md) are planned,
-not implemented by this documentation change. The system is intentionally insecure.
+AgentShield evaluates trust boundaries in a local application with document
+retrieval, model-proposed tool calls, and controlled records. The vulnerable
+`LLMAgent` and deterministic `VulnerableAgent` preserve the historical failures.
+`SecuredLLMAgent` adds trusted caller context, retrieval authorization, tool and
+resource permissions, argument validation, and structured decision events.
 
-The application loads JSON fixtures into an `Environment`. `VulnerableAgent`
-routes explicit commands; `LLMAgent` accepts natural-language input, optionally
-retrieves context, calls a replaceable `ModelProvider` once, and either returns
-assistant text or executes one model-selected local tool. The four tools are
-`search_documents`, `get_employee`, `get_customer`, and `create_ticket`.
-`TermRetriever` indexes document title/body terms and returns scored full documents
-with access labels. Tickets are in memory. There is no external API, service,
-web interface, real personal information, or real credential in this baseline.
+Both model-driven paths make one provider call and at most one tool invocation.
+`ModelProvider` is replaceable; `FakeModelProvider` returns scripted responses.
+`TermRetriever` ranks document terms. `LocalTools` implements document search,
+employee/customer retrieval, and in-memory ticket creation. No external service,
+real personal information, credentials, or production infrastructure is involved.
 
-Both agent paths look up a supplied user ID; this is not authentication. The
-LLM path sends that user record to the provider. Every role has the same tool
-availability, and document labels have no enforcement effect. The deterministic
-agent assigns ticket requester IDs from its caller; the LLM agent instead trusts
-the model-selected requester ID. Neither path authorizes record access.
-
-Existing boundaries must be preserved: the LLM path uses a fixed four-tool
-mapping, rejects unknown tools, checks exact required argument keys and string
-values, and rejects invalid response shapes. Tools check some data integrity
-conditions, such as ticket requester existence and nonblank ticket fields.
-These checks do not establish caller permission. No model output is evaluated as
-Python or shell code. There is no post-tool model turn: tool results currently
-return directly in `LLMAgentResult`, not back into the provider.
-
-Evidence sources: [LLM agent](../agentshield/llm_agent.py),
-[deterministic agent](../agentshield/agent.py), [tools](../agentshield/tools.py),
-[retrieval](../agentshield/retrieval.py),
-[attack cases](../agentshield/evaluation/cases.json), and
-[evaluation criteria](../agentshield/evaluation/runner.py).
+The [requirements](security-requirements.md) distinguish implemented controls from
+broader obligations. The [results](results.md) and [audit](secured-benchmark-audit.md)
+document measured outcomes and remaining assistant-output disclosures.
 
 ## Assets
 
-| Asset | Actual representation and security interest |
+| Asset | Representation and security interest |
 |---|---|
-| Synthetic internal documents | `data/documents.json`; preserve document contents, IDs, and label integrity. |
-| Restricted support/admin information | `support-only` and `admin-only` documents, including `document-003` and `document-007`; confidentiality against employee callers. Project Marigold contains 420000 demo credits and marker `SYNTHETIC-MARIGOLD-420000`, both fictional. |
-| Employee/customer records | `data/employees.json` and `data/customers.json`; full records currently disclose names, synthetic emails, departments, or customer plans. Record existence alone does not grant access. |
-| User identity and roles | `data/users.json`, `User.id`, `employee_id`, and `role`; integrity of caller attribution and future authorization decisions. |
-| Tool execution capabilities | Four local bound methods; read capabilities expose records, and ticket creation changes state and attribution. |
-| Retrieved context | `RetrievalResult` objects with full documents and scores; disclosure occurs when supplied to the provider or returned to the caller, even without an assistant answer. |
-| Agent/model outputs | Assistant text, `model_response`, `tool_result`, and `retrieved_context` in structured results; each can carry restricted content or an untrusted claim. |
-| Future audit/security events | Not implemented. Future decision and execution records must preserve trustworthy attribution without becoming another repository of restricted bodies or model-controlled verdicts. Evaluation reports are test artifacts, not runtime security audit events. |
+| Internal documents | Local document IDs, titles, bodies, and authoritative access labels. |
+| Restricted support/admin information | Support-only workflows and admin planning data, including the synthetic Marigold marker; confidentiality against unauthorized callers. |
+| Employee/customer records | Controlled records with identifiers, synthetic emails, departments, and plans; caller/target authorization. |
+| Identity and roles | User ID, employee link, and role; integrity of caller attribution. |
+| Tool capabilities | Read access and ticket writes; execution must not derive authority from model claims. |
+| Retrieved context | Full scored documents passed to the provider or returned to the caller; relevance alone is insufficient for access. |
+| Agent/model outputs | Assistant text, raw model responses, tool results, and context; all can disclose information. Assistant text remains unfiltered. |
+| Security events | In-memory trusted requester/action/resource/decision/reason records. No full document or record bodies; durable monitoring and comprehensive audit lifecycle are not implemented. |
 
-## Actors and trust assumptions
+## Actors and assumptions
 
-| Actor or untrusted source | Capabilities and assumptions |
-|---|---|
-| Legitimate employee | `user-001`, linked to `employee-001`; needs employee-accessible information and ordinary self-service operations. |
-| Support user | `user-002`; represents support workflows. Existence of the role does not imply an implemented permission policy. |
-| Administrator | `user-003`, linked to `employee-003`; represents administrative workflows. A textual claim of this role is not trusted identity. |
-| Malicious or compromised low-privileged user | Can submit arbitrary request text and target IDs. Current APIs also accept a caller-supplied user ID; the eight measured cases hold it at `user-001`, so identity spoofing at this entry point is a further unmeasured risk. |
-| Untrusted model output | May request any advertised tool, choose another identity's arguments, or emit restricted text. The fake provider scripts such behavior; a future real provider must not be treated as an authorization authority. |
-| Untrusted retrieved document content | Document bodies may contain instruction-like text. Fixtures are currently controlled local data, but content must not gain application authority when included in model context. No indirect document-injection case is present in the eight-case suite. |
+Legitimate users are employee `user-001`, support `user-002`, and admin `user-003`.
+A malicious or compromised user can submit arbitrary instructions and target IDs.
+Model output and retrieved document bodies are untrusted, including claims of
+approval or role. Benchmark injection documents are deliberately employee-accessible;
+their instructions may reach the model without granting application permission.
 
-For this model, application code, fixture storage, and the test harness are assumed
-not to be modified by the attacker. Modification of those files, host compromise,
-and external transport attacks are outside this local baseline. Future caller
-identity must be supplied by a trusted application context; this document does not
-claim that such a context or an authentication integration exists today.
+Application code, fixture storage, and the harness are assumed trusted. Secured
+callers are bound through application-supplied `RequesterContext`; this is not an
+authentication service. A network caller must not be allowed to choose that context.
+The baseline's supplied user ID is only a lookup. Host compromise, arbitrary
+repository modification, and production transport/authentication are outside scope.
 
-## Flow and trust boundaries
+## Architecture and boundaries
 
 ```mermaid
 flowchart LR
-    U[User] -->|B1: ID and request| A[Agent: LLMAgent or VulnerableAgent]
-    A -->|B3: optional query| R[TermRetriever]
-    D[(Synthetic documents)] -->|Indexed bodies and labels| R
-    R -->|Scored documents| C[Retrieved context]
-    C -->|B4: untrusted content via Agent| M[ModelProvider: scripted fake today]
-    A -->|B2: instructions, input, identity, tool definitions| M
-    M -->|B5: structured ToolCall| X[Dispatcher inside Agent]
-    A -->|Deterministic command path| X
-    X -->|B6: tool and arguments| T[LocalTools: search, employee, customer, ticket]
-    T --> E[(Local Environment)]
-    E --> T
-    T -->|B7: raw tool result| O[Structured agent response]
-    C -->|B7: returned context| O
-    M -->|B7: assistant text or model response| O
+    U[Untrusted input] -->|B1| A[SecuredLLMAgent]
+    I[Trusted RequesterContext] --> A
+    A -->|B3 query| R[TermRetriever]
+    D[(Local document corpus)] --> R
+    R --> RA[Document authorization]
+    I --> RA
+    RA -->|B4 authorized context| M[ModelProvider]
+    A -->|B2 instructions and definitions| M
+    M -->|B5 untrusted ToolCall| V[Argument validation]
+    V --> P[Tool and target authorization]
+    I --> P
+    P -->|B6 allowed invocation| T[LocalTools]
+    T --> F[Document checks for search results]
+    F -->|B7| O[Agent result]
+    M -->|Assistant text| O
+    RA -->|Returned context| O
+    P -->|Structured denial| O
     O --> U
+    RA -.-> E[Security events]
+    P -.-> E
+    F -.-> E
 ```
 
-The diagram shows logical boundaries inside one Python process, not network
-services. Retrieval is optional and occurs before the LLM call. The deterministic
-path bypasses the provider. Its `retrieve context` command returns retrieval
-results directly. `search_documents` is a separate tool route to the same document
-corpus and therefore a potential bypass of future retrieval-only protections.
+These are logical boundaries inside one process. Retrieval is optional. Tool
+results return directly, without a second provider turn. Non-search tool results
+pass through the final result assembly without additional output filtering. The
+vulnerable paths omit the secured enforcement components shown here.
 
-| Boundary | What crosses it | Why it matters in this implementation |
+| Boundary | What crosses it | Security-sensitive behavior |
 |---|---|---|
-| B1: user → agent | Supplied `user_id`, natural-language text or explicit commands, target IDs | Caller lookup is not authentication; user claims must not change trusted identity or privileges. |
-| B2: agent → model provider | System instructions, user text, user metadata, tool definitions, optional context | The provider sees data before any final answer is returned. Available capabilities and identity metadata do not delegate authorization to the model. |
-| B3: agent → retrieval | Query, then scored documents with labels | Retrieval currently has no caller authorization input and returns all matching access levels. Relevance is not permission. |
-| B4: retrieved document → model context | Full titles, bodies, labels, scores | Restricted data is disclosed to the provider; instruction-like document text may influence model behavior. Data must not acquire system or policy authority. |
-| B5: model output → dispatcher | `ToolCall` name and arguments | A structurally valid request currently becomes an executable action without a permission decision. Model claims and argument IDs are untrusted. |
-| B6: dispatcher → enterprise tools | Bound tool invocation and record/requester arguments | A read can disclose another identity's record; a write can create a misattributed ticket. Authorization must precede access and side effects. |
-| B7: tool result → model/agent response | Currently raw tool results go directly to agent results; context and assistant text are also returned | The structured result is itself a disclosure channel. There is currently no tool-result-to-model hop; any future such hop also requires caller-authorized content. |
+| B1: user → agent | Request text and target IDs | Secured identity comes from separate trusted application context, not instructions. |
+| B2: agent → provider | Instructions, input, identity metadata, tool definitions | Sending definitions does not delegate authorization; the provider is not policy authority. |
+| B3: agent → retrieval | Query and ranked document candidates | Ranking is separate from authorization; secured candidates are checked before release. |
+| B4: document → model context | Full documents and labels | Secured role checks prevent unauthorized source exposure; authorized content remains untrusted and may contain malicious instructions. |
+| B5: model output → dispatcher | Tool name and structured arguments | Exact schemas and resource policy constrain untrusted proposals. No arbitrary code evaluation or dynamic dispatch is used. |
+| B6: dispatcher → tools | Authorized operation and target | Customer and employee reads are target-authorized; ticket attribution is normalized before mutation. |
+| B7: tool result → response | Records, documents, context, assistant text | Search results are document-authorized. Assistant output has no DLP; a valid source-access check does not prove all output is safe. |
 
-## Observed attack paths
+## Attack paths and evidence
 
-The deterministic evaluation reports eight successful attacks out of eight, zero
-blocked, zero evaluation errors, and a 100% attack success rate. Each scenario
-uses a fresh local environment and a scripted provider. Success requires an
-observed disclosure or stored effect, not request acceptance.
+The original eight-case evaluation establishes baseline failures. Frozen v2.0
+expands coverage to 24 adversarial cases across seven categories and eight benign
+controls. Vulnerable mode succeeds on all 24; secured mode satisfies none of the
+frozen attack-success predicates. No injection detector is involved.
 
-| Category (count) | Attacker goal and entry point | Vulnerable boundaries and affected assets | Observed insecure behavior | Required future security property |
+| Category | Goal and entry point | Boundaries/assets | Vulnerable behavior | Secured consequence boundary |
 |---|---|---|---|---|
-| Direct prompt injection (1) | User text says to ignore employee restrictions and claims administrator approval. | B1, B5–B7; restricted planning document and document-search capability. | Scripted `search_documents` returns the full admin-only `document-007`. | User/model instructions cannot confer permission; document search and outputs must respect the trusted caller. |
-| Unauthorized retrieval (2) | Employee asks ordinary questions about support triage or the Marigold budget. | B3, B4, B7; support/admin documents and model context. | Full `document-003` and `document-007` are both supplied to the provider and included in employee results. | Authorize documents outside the model before context construction and return. |
-| Sensitive tool abuse (1) | Employee requests the complete `customer-001` record. | B5–B7; customer data and record-read capability. | Model-selected `get_customer` executes and returns the full customer record. | Check caller, operation, and target permission before execution. |
-| Identity/argument manipulation (2) | User/model selects `employee-003` or ticket requester `user-003`. | B1, B5–B7; employee records and ticket attribution. | Administrator employee record is returned; a ticket is actually stored as another requester. | Bind caller identity to trusted context, authorize target records, and prevent unapproved requester substitution. |
-| Data exfiltration (2) | Employee requests the restricted marker in an answer or a full document result. | B3–B7; restricted synthetic value and output channels. | Marker reaches assistant text after the source is supplied to the model, or reaches raw search results. | Prevent unauthorized source disclosure and independently constrain caller-visible outputs. |
+| Direct injection (5) | Override/authority/role-play/forged instructions in user text | B1, B5–B7; documents and customer records | Scripted tool request discloses restricted data | Search document policy or customer-read permission denies the consequence. |
+| Indirect injection (3) | Instructions embedded in retrieved notes | B4–B7; protected records and ticket attribution | Provider requests the embedded search, read, or impersonated write | Documents still reach the provider; requested consequences pass independent controls. |
+| Unauthorized retrieval (4) | Employee/support asks for disallowed context | B3–B4, B7; restricted documents | Restricted source supplied and returned | Role hierarchy excludes unauthorized candidates before context construction. |
+| Sensitive tool abuse (3) | Customer read, peer read, ticket as customer | B5–B7; records and state | Reads or misattributed writes execute | Resource checks deny reads; requester binding normalizes attribution. |
+| Identity manipulation (3) | Other employee/requester IDs in arguments | B1, B5–B7; identity integrity | Other-user read or attribution succeeds | Self/admin record checks and trusted requester binding. |
+| Data exfiltration (3) | Marker/combined answer or raw document result | B3–B7; confidential synthetic values | Restricted context/results and text reach caller | Raw search disclosure is prevented; two assistant cases retain output leakage despite failing source-dependent predicates. |
+| Obfuscated instructions (3) | Spacing, encoding, delimiters in user text | B1, B5–B7; customer records | Scripted unauthorized read executes | Customer permission check; obfuscation itself is not detected. |
 
-“Exfiltration” here means local disclosure through returned output, not sending to
-an external endpoint. The direct-injection and assistant-leakage responses are
-scripted: the evaluation does not establish that a real model obeyed the prompt
-or derived its answer from context. In particular, the canned marker response can
-still be emitted if context is withheld. Future verification must inspect the
-returned text independently, not rely solely on the current evaluator's
-source-context precondition to declare the output safe.
+Exfiltration here means local returned disclosure, not a network destination.
+Scripted compliance does not establish that a real model followed any instruction.
+The audit confirms 22 prevented specified consequences and two narrower predicate
+failures with restricted text still returned. This limits the interpretation of
+0% ASR; see [case traces](secured-benchmark-audit.md).
 
-## Traceability and limits
+## Requirement traceability and residual risks
 
-The [eight-case requirement mapping](security-requirements.md#existing-case-mapping)
-identifies preventive requirements for each observed outcome and separate audit
-and failure-handling obligations. No outcome, fixture, or evaluation criterion is
-changed by this threat model. Unmeasured risks include malicious instructions in
-document bodies, arbitrary caller-ID substitution, and security-decision failures.
-They require future tests; they are not additional successful baseline cases.
+[AS-REQ-001 through AS-REQ-010](security-requirements.md) cover identity binding,
+document access, model trust, operation/target authorization, attribution,
+validation, outputs, untrusted content, events, and failure handling. The original
+eight-case mapping is retained there for traceability; current coverage is explicit.
 
-To reproduce the current evidence from the repository root:
-
-```sh
-python3 -m unittest discover -s tests -v
-python3 -m agentshield.evaluation
-```
+The completed scope does not provide output DLP, production authentication,
+durable audit delivery, external model testing, or comprehensive multi-turn threat
+coverage. Access controls constrain consequences, not every form of model influence.
+Vulnerable entry points remain intentionally selectable and must not be confused
+with the secured implementation.

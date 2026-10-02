@@ -3,7 +3,8 @@
 Run from the repository root:
 
 ```sh
-python3 -m agentshield.evaluation.benchmark
+python3 -m agentshield.evaluation.benchmark --mode vulnerable
+python3 -m agentshield.evaluation.benchmark --secured
 python3 -m agentshield.evaluation.benchmark --output /tmp/agentshield-benchmark.json
 python3 -m unittest discover -s tests -v
 ```
@@ -53,9 +54,15 @@ These expectations are an explicit benchmark oracle, not runtime defenses:
 - No caller in this dataset has a delegation grant to create a ticket under
   another user or customer identity.
 
-This is a benchmark permission model for these fixtures, not a claim that the
-application implements it. It makes support/admin controls explicit where earlier
-requirements left future permission details open.
+This remains an evaluation oracle, separate from application execution. The
+secured path now implements the corresponding grants through its policy
+components; vulnerable mode deliberately does not enforce them.
+
+The CLI defaults to secured execution, displayed as `secured_identity_retrieval_tools`.
+`--mode vulnerable` selects the baseline; `--compare` runs both over one loaded
+set of cases. `--mode secured_identity_retrieval` remains a compatible secured
+selector. The Python `run_benchmark()` default remains vulnerable for compatibility;
+use an explicit `mode` when comparing implementations.
 
 ## Execution and success criteria
 

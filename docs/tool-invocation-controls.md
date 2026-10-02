@@ -39,8 +39,8 @@ python3 -m agentshield.evaluation.benchmark --mode vulnerable
 python3 -m agentshield.evaluation.benchmark --mode secured_identity_retrieval
 ```
 
-The existing secured mode name is retained for CLI compatibility; it now runs
-Layers 1 and 2. Layer 1 figures below are historical reference measurements.
+The selector `--mode secured_identity_retrieval` is retained for CLI compatibility;
+the displayed mode is `secured_identity_retrieval_tools` and runs Layers 1 and 2. Layer 1 figures below are historical reference measurements.
 
 | Implementation | Successful attacks | Blocked | ASR | Benign pass | False-positive/block | Errors |
 |---|---:|---:|---:|---:|---:|---:|

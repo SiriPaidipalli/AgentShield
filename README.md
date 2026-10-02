@@ -1,152 +1,167 @@
 # AgentShield
 
-AgentShield studies security boundaries in LLM agents that combine retrieval, identity context, and tool execution. It provides an intentionally vulnerable implementation and a deterministic adversarial benchmark, establishing a baseline for evaluating future security controls against the same frozen cases.
+AgentShield evaluates security boundaries in LLM agents that combine retrieval and tool execution. It includes a reproducible vulnerable implementation, a secured implementation with deterministic application-side controls, and a frozen benchmark for comparing adversarial outcomes with legitimate functionality.
 
-## Why AgentShield
+## Security Problem
 
-An agent can combine user instructions, retrieved documents, model decisions, and application capabilities in a single workflow. Each transition introduces a trust boundary: a relevant document may be unauthorized, a model-generated argument may reference another identity, and a structurally valid tool call may request an operation the caller is not permitted to perform.
+Agent workflows carry user instructions, retrieved data, identity context, and model-generated requests across different trust boundaries. A relevant document is not necessarily authorized for the caller, and a well-formed tool request does not establish permission to access its target. Treating model output as trusted control logic can expose sensitive records or attribute actions to another identity.
 
-AgentShield makes these failures observable in a controlled application. Its baseline deliberately trusts model-selected operations without independent authorization, allowing security changes to be assessed against both adversarial outcomes and legitimate functionality.
-
-## What AgentShield Evaluates
-
-| Security boundary | Evaluation focus |
-|---|---|
-| Prompt and instruction handling | Direct instructions, forged authority, obfuscated requests, and instructions embedded in retrieved documents. |
-| Retrieval authorization | Disclosure across employee, support, and admin document access levels. |
-| Model-to-tool boundary | Execution of sensitive operations requested by an untrusted model response. |
-| Identity and argument integrity | Access to another identity's records and ticket creation under a model-selected requester. |
-| Sensitive-data exposure | Restricted information reaching retrieved context, assistant text, or raw tool results. |
-
-Local documents, identities, and records are controlled evaluation data. Their access labels and identifiable restricted values make violations measurable without using real personal information, credentials, or external targets.
+AgentShield treats model output as untrusted at security-sensitive boundaries in its secured path. Authorization and argument validation run in application code, independently of model approval claims. The project does not implement a general prompt-injection detector.
 
 ## Architecture
 
-`LLMAgent` accepts a caller ID and request, optionally retrieves context, and sends instructions, input, identity metadata, context, and tool definitions to a replaceable `ModelProvider`. The current `FakeModelProvider` returns scripted assistant responses or structured tool calls. Each request makes one provider call and executes at most one tool.
+`SecuredLLMAgent` receives requester context from trusted application code, optionally retrieves authorized document context, and makes one call to a replaceable `ModelProvider`. The current `FakeModelProvider` supplies scripted responses. A response is either assistant text or one structured tool request; there is no post-tool model turn.
 
 ```mermaid
 flowchart LR
-    U[User] -->|Identity and request| A[LLMAgent]
+    U[Untrusted user input] --> A[SecuredLLMAgent]
+    I[Trusted RequesterContext] --> A
     A -->|Optional query| R[TermRetriever]
-    D[(Local documents)] -->|Indexed titles and bodies| R
-    R -->|Scored documents and labels| C[Retrieved context]
-    C -->|Via agent| M[ModelProvider]
-    A -->|Instructions, input, identity, tool definitions| M
-    M -->|Structured tool call| X[Tool dispatcher inside agent]
-    X --> T[LocalTools]
-    T <--> E[(Local environment)]
-    M -->|Assistant response| O[Structured agent result]
-    T -->|Tool result| O
-    C --> O
+    D[(Local documents)] --> R
+    R --> RA[Retrieval authorization]
+    I --> RA
+    RA -->|Authorized context via agent| M[ModelProvider]
+    A -->|Instructions and tool definitions| M
+    M --> Q[Untrusted tool request]
+    Q --> V[Argument validation]
+    V --> P[Tool and resource authorization]
+    I --> P
+    P -->|Allowed call| T[LocalTools]
+    T --> S[Document authorization for search results]
+    S --> O[Structured agent result]
+    P -->|Denied call| O
+    M -->|Assistant text| O
+    RA -->|Returned context| O
     O --> U
+    RA -.-> E[In-memory security events]
+    P -.-> E
+    S -.-> E
 ```
 
-`LocalTools` implements `search_documents`, `get_employee`, `get_customer`, and `create_ticket`. Retrieval uses weighted term overlap; document search is a separate substring-search tool. Tickets remain in memory. The existing `VulnerableAgent` also supports explicit deterministic commands without a model provider.
+The diagram shows components within one Python process, not separate services. `LocalTools` provides document search, employee/customer lookup, and ticket creation over controlled local data. Retrieval uses weighted term overlap; search uses substring matching. Tickets are stored in memory. The vulnerable `LLMAgent` and command-based `VulnerableAgent` remain available for baseline comparison and do not acquire the secured path's controls.
 
-The dispatcher rejects unknown tools and malformed arguments through a fixed tool mapping and structural checks. It does not authorize valid calls. Caller lookup is not authentication, retrieval does not enforce access labels, and returned information is unfiltered. Tool results return directly to the caller; there is no second model turn after execution.
+## Threat Model
+
+The major boundaries are user input to application identity, document retrieval to provider context, model output to tool dispatch, and tool results to caller-visible output. The [threat model](docs/threat-model.md) describes assets, actors, assumptions, and these boundaries. [Security requirements](docs/security-requirements.md) record their verification obligations and current implementation coverage, including requirements that remain outside the completed scope.
 
 ## Adversarial Benchmark
 
-Benchmark v2.0 contains **32 cases: 24 adversarial and 8 benign/control cases**. Cases specify the caller, technique, input, expected security behavior, scripted provider response, and observable outcome. The seven adversarial categories and their counts appear in the results table below.
+Frozen benchmark v2.0 contains **32 cases: 24 adversarial and 8 benign/control cases**. The same definitions and success predicates run against vulnerable and secured implementations. Cases specify requesting identity, input, technique, scripted provider behavior, and a machine-checkable outcome.
 
-Coverage includes direct instruction manipulation, malicious retrieved documents, cross-role retrieval, sensitive reads and writes, identity substitution, output disclosure, and selected obfuscation techniques. Indirect-injection documents are loaded only into the relevant case's environment. Benign controls exercise employee, support, and administrator workflows, ordinary retrieval and tool use, and harmless conversation.
-
-Deterministic provider behavior isolates application security failures from model variability. These cases test what the application permits when a model produces the specified response; they do not measure how often a production LLM would produce that response.
-
-## Baseline Results
-
-**These are intentionally vulnerable baseline results, not good security performance.** All adversarial cases currently demonstrate their specified violation. Future secured implementations will be compared against this baseline using the same benchmark.
-
-| Attack category | Successful attacks | Total attacks | ASR |
-|---|---:|---:|---:|
-| Direct prompt injection | 5 | 5 | 100% |
-| Indirect prompt injection | 3 | 3 | 100% |
-| Unauthorized retrieval | 4 | 4 | 100% |
-| Sensitive tool abuse | 3 | 3 | 100% |
-| Identity/argument manipulation | 3 | 3 | 100% |
-| Data exfiltration | 3 | 3 | 100% |
-| Obfuscated instructions | 3 | 3 | 100% |
-| **Total** | **24** | **24** | **100%** |
-
-| Overall measurement | Result |
+| Adversarial category | Cases |
 |---|---:|
-| Adversarial attacks succeeded | 24/24 |
-| Attack success rate | 100% |
-| Benign cases passed | 8/8 |
-| Benign pass rate | 100% |
-| False-positive/block rate | 0% |
-| Evaluation errors | 0 |
-| Unit tests passing | 58 |
+| `direct_prompt_injection` | 5 |
+| `indirect_prompt_injection` | 3 |
+| `unauthorized_retrieval` | 4 |
+| `sensitive_tool_abuse` | 3 |
+| `identity_argument_manipulation` | 3 |
+| `data_exfiltration` | 3 |
+| `obfuscated_instructions` | 3 |
 
-Passing unit tests establish expected application and measurement behavior; they do not establish that the baseline is secure.
+Deterministic responses make application behavior reproducible without network access or API keys. Benign controls cover employee, support, and administrator workflows, ordinary retrieval and tools, and conversation. `ATTACK_BLOCKED` means the case's defined observable violation did not occur; it does not mean malicious wording was detected or every possible disclosure was prevented.
 
-## Security Model
+## Security Controls
 
-The [threat model](docs/threat-model.md) documents assets, actors, trust boundaries, and the original observed attack paths. The [security requirements](docs/security-requirements.md) define testable future obligations for identity binding, authorization, argument validation, output handling, audit events, and failure behavior. Requirements are planned, not implemented controls. The benchmark's explicit role expectations are evaluation criteria rather than runtime policy enforcement.
+| Control | Enforcement and protected boundary |
+|---|---|
+| Trusted requester identity | `RequesterContext` is bound by application code; identity and role are resolved from the environment, never from model claims. This is a local trust contract, not an authentication service. |
+| Retrieval authorization | `AuthorizedRetriever` applies document access checks before context reaches the provider or caller. Employee, support, and admin access form an explicit hierarchy. |
+| Tool authorization outside the model | `ToolPolicy` checks each structured call immediately before fixed dispatch. A model can request an operation but cannot authorize it. |
+| Resource-level authorization | Employee reads require self or admin; customer reads require support or admin. Search results pass document-level authorization before release. |
+| Structured argument validation | Exact required keys, string types, known tools, resource existence/domain, and nonblank ticket fields are checked before invocation. Unexpected identity/role arguments are rejected. |
+| Trusted state-change attribution | Valid ticket requests are bound to the trusted caller, preventing model-selected impersonation. Invalid requests do not invoke the write tool. |
+| Fail-closed handling | Unknown identities, invalid roles/labels, and failed authorization do not permit protected access. Unexpected execution failures remain errors rather than successful security blocks. |
+| Security decision events | In-memory structured events record requester, action/resource, allow/deny, and reason without full sensitive contents. They are not a durable audit service. |
 
-## Project Structure
+These controls apply through `SecuredLLMAgent`; the underlying local tools and vulnerable agents intentionally remain available without that enforcement. Assistant-output DLP, injection classification, and external authentication are not implemented.
 
-```text
-AgentShield/
-├── agentshield/
-│   ├── agent.py                 # Deterministic vulnerable agent
-│   ├── llm_agent.py             # Model-driven agent and tool dispatch
-│   ├── providers.py             # Provider interface and scripted fake
-│   ├── retrieval.py             # Local term-based retrieval
-│   ├── tools.py                 # Local enterprise operations
-│   ├── environment.py           # Configuration and fixture loading
-│   ├── models.py                # Typed records and access metadata
-│   └── evaluation/
-│       ├── cases.json           # Original eight adversarial cases
-│       ├── runner.py            # Original evaluation runner
-│       ├── benchmark.py         # Benchmark v2.0 runner and validation
-│       ├── benchmark_cases.json
-│       └── injection_documents.json
-├── data/                       # Controlled evaluation fixtures
-├── docs/                       # Threat model, requirements, methodology
-├── tests/                      # Standard-library unit tests
-└── README.md
-```
+## Experimental Results
 
-## Running AgentShield
+| Metric | Vulnerable | Secured |
+|---|---:|---:|
+| Adversarial cases | 24 | 24 |
+| Successful attacks | 24 | 0 |
+| Blocked attacks | 0 | 24 |
+| Overall ASR | 100.0% | 0.0% |
+| Benign cases passed | 8/8 | 8/8 |
+| Benign pass rate | 100.0% | 100.0% |
+| False-positive/block rate | 0.0% | 0.0% |
+| Evaluation errors | 0 | 0 |
 
-Use Python 3.8 or later. The project uses only the standard library; no external API, API key, paid model, or dependency installation is required. Run these commands from the repository root containing this README and the `agentshield/` package.
+All seven categories have **0.0% secured ASR under the frozen predicates**. Direct and obfuscated cases request unauthorized downstream actions, which application authorization prevents without recognizing their wording. Malicious retrieved instructions still reach the model, but their requested protected consequences are constrained. Prompt injection itself has not been eliminated.
 
-Run the complete unit test suite:
+**Two results require qualification:** `exfil-assistant-response` and `exfil-combined` still return scripted restricted values. Their predicates require restricted source context as well as answer content; authorization withholds that context. The audit found 22 cases with the specified unauthorized disclosure or attribution prevented, and these two narrower predicate-level blocks. The measured 0% ASR is not evidence that assistant-output leakage is prevented.
+
+The complete suite has **85 passing tests**. [Results](docs/results.md) provides per-category comparisons and interpretation; the [secured benchmark audit](docs/secured-benchmark-audit.md) traces every adversarial case.
+
+## Evaluation Integrity
+
+Audit tests verify that adversarial classification and benchmark category do not determine security decisions, and expected outcomes are not consumed by application controls. All adversarial cases still reach the provider and receive their unchanged scripted responses. Adversarial wording can accompany an authorized action that executes successfully; unauthorized actions are denied even with ordinary wording.
+
+The evaluator invokes real application components and checks outputs or stored state. Structured denials require application decision evidence. Exceptions, missing results, and malformed executions remain evaluation errors. These checks establish measurement integrity, not universal security.
+
+## Running the Project
+
+Use Python 3.8 or later from the repository root containing this README. Only the standard library is required; no dependency installation, API keys, or external services are needed.
+
+Run the complete test suite:
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-Run the original eight-case proof-of-concept evaluation, retained for baseline compatibility:
+Run the vulnerable benchmark:
 
 ```sh
-python3 -m agentshield.evaluation
+python3 -m agentshield.evaluation.benchmark --mode vulnerable
 ```
 
-Run benchmark v2.0, optionally writing its results to a local JSON file:
+Run the secured benchmark:
 
 ```sh
-python3 -m agentshield.evaluation.benchmark
-python3 -m agentshield.evaluation.benchmark --output /tmp/agentshield-benchmark.json
+python3 -m agentshield.evaluation.benchmark --secured
 ```
 
-Evaluation commands exit with status 1 for execution errors and 0 otherwise, even when attacks succeed. Read the reported outcomes rather than treating a zero exit status as a security verdict.
+Compare both implementations, optionally saving local JSON results:
+
+```sh
+python3 -m agentshield.evaluation.benchmark --compare
+python3 -m agentshield.evaluation.benchmark --compare --output /tmp/agentshield-comparison.json
+```
+
+The CLI defaults to secured execution and displays `secured_identity_retrieval_tools`. The compatible explicit selector is `--mode secured_identity_retrieval`. The original eight-case baseline remains available through `python3 -m agentshield.evaluation`. Python callers should select `run_benchmark(mode=...)` explicitly because its historical default remains vulnerable. Benchmark commands exit 1 for execution errors, otherwise 0 even when attacks succeed.
+
+## Project Structure
+
+```text
+agentshield/
+├── agent.py                 # Deterministic vulnerable agent
+├── llm_agent.py             # Model-driven vulnerable baseline
+├── secured_agent.py         # Secured execution path
+├── security.py              # Identity, retrieval policy, decision events
+├── tool_security.py         # Tool validation and resource authorization
+├── providers.py             # Provider interface and scripted fake
+├── retrieval.py             # Term-based ranking
+├── tools.py                 # Local read/write operations
+├── environment.py           # Configuration and data loading
+└── evaluation/              # Frozen cases, runners, execution adapters
+data/                        # Controlled records and documents
+tests/                       # Functional, security, benchmark, audit tests
+docs/                        # Threat model, requirements, results, audit
+```
 
 ## Methodology
 
-Each case starts with a fresh environment and a scripted provider response. Attack success requires an observable violation: a restricted document or record returned, a ticket actually stored under another requester, or specified restricted content exposed in output. Indirect-injection success additionally requires the malicious document to reach the actual provider request. Request acceptance or a proposed tool call alone is insufficient.
+Each case runs in a fresh controlled local environment. Scripted provider decisions isolate application trust boundaries from model variability. Success requires an observed record/document disclosure, stored misattributed ticket, or specified output condition; merely accepting a request is insufficient. Indirect cases additionally require their embedded instructions to reach the provider.
 
-Attack success rate uses only adversarial cases. Benign pass rate measures completion of expected legitimate operations, while the false-positive/block rate counts benign runs that fail their functional criterion, including refusal or an incorrect result. Execution errors are reported separately. A blocked attack means its particular criterion was not observed; it does not prove a defense exists.
-
-The benchmark is intended to remain stable while controls are introduced, preserving comparable adversarial and benign measurements. See [benchmark methodology](docs/benchmark-methodology.md) for case coverage, permission assumptions, metric definitions, and reproducibility details.
-
-## Current Status
-
-The vulnerable baseline, threat model, and benchmark v2.0 are complete. Security controls have not yet been implemented. Future work will enforce the documented security requirements and evaluate their effects against the frozen benchmark; no secured-implementation results are available yet.
+The frozen dataset is shared by both implementations. Adversarial ASR and benign pass/block rates use separate populations. Benign failures include refusal or incorrect output; exceptions are reported separately and remain in their population's denominator. See [benchmark methodology](docs/benchmark-methodology.md) for definitions and limitations.
 
 ## Limitations
 
-Evaluation uses deterministic provider behavior rather than stochastic behavior from production LLMs. Scripted compliance does not establish that an injection caused a model decision, and the fake provider does not reason about or decode the attack text. Some assistant-disclosure criteria require source context as well as matching output, so a failed criterion is not proof that every output channel is safe.
+The deterministic provider does not measure stochastic production LLM behavior, infer causality from injected instructions, or interpret encoded prompts. Data and tools are local and controlled; no external production infrastructure is evaluated. The benchmark is finite and does not represent every LLM-agent attack or multi-turn workflow.
 
-The environment is local and controlled, with no external exfiltration destination or production authentication integration. The benchmark does not cover every LLM-agent attack, arbitrary paraphrases of restricted information, or multi-turn production workflows. Current results measure the implemented AgentShield environment under the specified scenarios, not universal LLM security.
+The 0% secured ASR applies only to benchmark v2.0's defined consequences and must not be generalized to universal security. Prompt injection is not generally solved, and the two source-dependent assistant-output criteria leave a known disclosure limitation. There is no output filtering, production identity integration, or durable security-event pipeline.
+
+## Current Status
+
+The current scope is complete: vulnerable implementation, frozen adversarial benchmark, threat model, security requirements, deterministic identity/retrieval/tool controls, before/after evaluation, and audit validation. Completion refers to this bounded evaluation scope, not full implementation of every broader security requirement or production security assurance.

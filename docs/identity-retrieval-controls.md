@@ -1,5 +1,9 @@
 # First control stage: trusted identity and retrieval authorization
 
+Historical Layer 1 design and measurements. The current secured agent also includes
+[Layer 2](tool-invocation-controls.md); this document’s 14/24 result and lack of
+search/tool authorization describe Layer 1 only. See [current results](results.md).
+
 Use `SecuredLLMAgent(tools, provider, RequesterContext(user_id))` from
 `agentshield.secured_agent` and `agentshield.security`, then call
 `handle_request(text, retrieve_context=True)`. The caller is bound by trusted
@@ -63,9 +67,10 @@ still reach the model, and tool searches still disclose restricted documents.
 AS-REQ-001 and the retrieval portion of AS-REQ-002 are addressed in this secured
 path; document-search enforcement and the remaining requirements are not complete.
 
-## Explicit evaluation modes
+## Current evaluation commands
 
-The CLI now defaults to the secured implementation. Select the historical
+The CLI defaults to the current Layers 1 + 2 implementation and displays
+`secured_identity_retrieval_tools`; these commands do not reproduce Layer 1 alone. Select the historical
 baseline explicitly, or run a comparison over one loaded set of frozen cases:
 
 ```sh
