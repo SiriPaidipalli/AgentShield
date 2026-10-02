@@ -161,7 +161,3 @@ The frozen dataset is shared by both implementations. Adversarial ASR and benign
 The deterministic provider does not measure stochastic production LLM behavior, infer causality from injected instructions, or interpret encoded prompts. Data and tools are local and controlled; no external production infrastructure is evaluated. The benchmark is finite and does not represent every LLM-agent attack or multi-turn workflow.
 
 The 0% secured ASR applies only to benchmark v2.0's defined consequences and must not be generalized to universal security. Prompt injection is not generally solved, and the two source-dependent assistant-output criteria leave a known disclosure limitation. There is no output filtering, production identity integration, or durable security-event pipeline.
-
-## Current Status
-
-The current scope is complete: vulnerable implementation, frozen adversarial benchmark, threat model, security requirements, deterministic identity/retrieval/tool controls, before/after evaluation, and audit validation. Completion refers to this bounded evaluation scope, not full implementation of every broader security requirement or production security assurance.
