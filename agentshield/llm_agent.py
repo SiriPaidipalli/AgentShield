@@ -102,6 +102,11 @@ class LLMAgent:
                 or not all(isinstance(value, str) for value in arguments.values())):
             raise ValueError(f"Malformed arguments for {response.tool_name}")
         # INTENTIONALLY INSECURE: execute directly, irrespective of requesting role.
+        arguments = self.prepare_arguments(user, response.tool_name, arguments)
         result = dispatch[response.tool_name](**arguments)
         return LLMAgentResult(user, request, context, response, "tool_call",
                               response.tool_name, result)
+
+    def prepare_arguments(self, user: User, tool_name: str, arguments: dict) -> dict:
+        """Baseline extension point; no authorization in this implementation."""
+        return arguments

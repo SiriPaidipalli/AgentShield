@@ -11,6 +11,9 @@ from ..models import AccessLevel, Document, Ticket
 from ..providers import AssistantResponse, FakeModelProvider, ToolCall
 from ..tools import LocalTools
 from .runner import statistics, write_report
+from ..secured_agent import SecuredLLMAgent
+from ..security import RequesterContext
+from .adapters import MODES, execute
 
 ROOT = Path(__file__).parent
 CATEGORIES = {
@@ -186,7 +189,10 @@ def observe(case, result, environment, request):
     }
 
 
-def run_benchmark_case(case):
+def run_benchmark_case(case, secured=False, mode=None):
+    mode = mode or ('secured_identity_retrieval' if secured else 'vulnerable')
+    if mode not in MODES:
+        raise ValueError('Unknown execution mode')
     environment = load_environment()
     injections = injection_documents()
     environment.documents.update({i: injections[i] for i in case['injection_document_ids']})
@@ -195,7 +201,10 @@ def run_benchmark_case(case):
     provider = FakeModelProvider([response])
     record = dict(case)
     try:
-        result = LLMAgent(LocalTools(environment), provider).handle_request(case['requesting_user'], case['user_input'], case['retrieve_context'])
+        agent_class = SecuredLLMAgent if mode == 'secured_identity_retrieval' else LLMAgent
+        result, events = execute(mode, agent_class, LocalTools(environment), provider, case)
+        if mode == 'secured_identity_retrieval':
+            record['security_events'] = events
         passed, evidence = observe(case, result, environment, provider.requests[0])
         statuses = ('BENIGN_PASSED', 'BENIGN_BLOCKED') if case['case_type'] == 'benign' else ('ATTACK_SUCCEEDED', 'ATTACK_BLOCKED')
         record.update(status=statuses[0] if passed else statuses[1], evidence=evidence)
@@ -223,15 +232,16 @@ def aggregate(results):
                         for c in sorted({r['category'] for r in adversarial})}}
 
 
-def run_benchmark(path=None):
+def run_benchmark(path=None, secured=False, mode=None):
     cases = load_benchmark(path)
-    results = [run_benchmark_case(case) for case in cases]
-    return {'evaluation_version': '2.0', 'mode': 'deterministic_insecure_benchmark',
+    mode = mode or ('secured_identity_retrieval' if secured else 'vulnerable')
+    results = [run_benchmark_case(case, mode=mode) for case in cases]
+    return {'evaluation_version': '2.0', 'mode': mode,
             'total_cases': len(cases), **aggregate(results), 'cases': results}
 
 
 def format_summary(report):
-    lines = ['AgentShield benchmark v2.0 (deterministic_insecure_benchmark)']
+    lines = [f"AgentShield benchmark v2.0 ({report['mode']})"]
     for category, stats in report['per_category'].items():
         lines.append(f"{category}: {stats['successful_attacks']}/{stats['total_attack_cases']} attacks succeeded; ASR {stats['attack_success_rate']:.1%}")
     a, b = report['adversarial'], report['benign']
@@ -252,14 +262,45 @@ def format_summary(report):
     return '\n'.join(lines)
 
 
+def compare_benchmark(path=None):
+    # Load once: both adapters receive the same validated definitions.
+    cases = load_benchmark(path)
+    reports = {}
+    for mode in MODES:
+        results = [run_benchmark_case(case, mode=mode) for case in cases]
+        reports[mode] = {'evaluation_version': '2.0', 'mode': mode,
+                         'total_cases': len(cases), **aggregate(results), 'cases': results}
+    before, after = (reports[mode]['cases'] for mode in MODES)
+    reports['changed_cases'] = [
+        {'id': left['id'], 'before': left['status'], 'after': right['status']}
+        for left, right in zip(before, after) if left['status'] != right['status']
+    ]
+    return reports
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Run the expanded local benchmark')
+    parser = argparse.ArgumentParser(description='Run the frozen benchmark against an explicit implementation')
     parser.add_argument('--output', type=Path)
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--mode', choices=MODES)
+    selection.add_argument('--secured', action='store_true', help='Alias for --mode secured_identity_retrieval')
+    selection.add_argument('--compare', action='store_true', help='Run both implementations against identical cases')
     args = parser.parse_args()
-    report = run_benchmark()
-    print(format_summary(report))
-    if args.output: write_report(report, args.output)
-    return int(bool(report['adversarial']['evaluation_errors'] or report['benign']['evaluation_errors']))
+    if args.compare:
+        report = compare_benchmark()
+        for mode in MODES:
+            print(format_summary(report[mode]))
+        print('Changed outcomes:')
+        for change in report['changed_cases']:
+            print(f"  {change['id']}: {change['before']} -> {change['after']}")
+        reports = [report[mode] for mode in MODES]
+    else:
+        report = run_benchmark(mode=args.mode or 'secured_identity_retrieval')
+        print(format_summary(report))
+        reports = [report]
+    if args.output:
+        write_report(report, args.output)
+    return int(any(r['adversarial']['evaluation_errors'] or r['benign']['evaluation_errors'] for r in reports))
 
 
 if __name__ == '__main__':
